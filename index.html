@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Darts</title>
+  <meta name="description" content="A two player darts game. Play 301 or 501 against a friend or the computer.">
+  <meta name="theme-color" content="#0f1720">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Darts">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="menu" class="screen">
+    <div class="menu-inner">
+      <canvas id="logo" aria-hidden="true"></canvas>
+      <h1>Darts</h1>
+      <p class="sub">Count down to exactly zero to win</p>
+
+      <div class="field">
+        <div class="flabel">Players</div>
+        <div class="seg" data-key="mode">
+          <button data-v="cpu">vs Computer</button>
+          <button data-v="2p">2 Players</button>
+        </div>
+      </div>
+
+      <div class="field" id="diffField">
+        <div class="flabel">Computer level</div>
+        <div class="seg" data-key="diff">
+          <button data-v="easy">Easy</button>
+          <button data-v="medium">Medium</button>
+          <button data-v="hard">Hard</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="flabel" for="p1Name">Player 1 name</label>
+        <input id="p1Name" maxlength="12" placeholder="Player 1" autocomplete="off" enterkeyhint="done">
+      </div>
+      <div class="field" id="p2Field">
+        <label class="flabel" for="p2Name">Player 2 name</label>
+        <input id="p2Name" maxlength="12" placeholder="Player 2" autocomplete="off" enterkeyhint="done">
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <div class="flabel">Game</div>
+          <div class="seg" data-key="start">
+            <button data-v="301">301</button>
+            <button data-v="501">501</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="flabel">Legs (best of)</div>
+          <div class="seg" data-key="legs">
+            <button data-v="1">1</button>
+            <button data-v="3">3</button>
+            <button data-v="5">5</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="flabel">Double to win</div>
+        <div class="seg" data-key="doubleOut">
+          <button data-v="off">Off</button>
+          <button data-v="on">On</button>
+        </div>
+        <p class="fnote" id="doubleNote"></p>
+      </div>
+
+      <div class="field">
+        <div class="flabel">Flick strength</div>
+        <div class="seg" data-key="flick">
+          <button data-v="gentle">Gentle</button>
+          <button data-v="normal">Normal</button>
+          <button data-v="strong">Strong</button>
+        </div>
+      </div>
+
+      <button id="startBtn" class="primary big">Start game</button>
+      <button id="howBtn" class="link">How to play</button>
+      <p class="foot">dusty.games</p>
+    </div>
+  </section>
+
+  <section id="game" class="screen hidden">
+    <canvas id="cv"></canvas>
+    <div id="top">
+      <header id="hud">
+        <div class="pcard" id="pc0"><div class="pname"></div><div class="prem"></div><div class="pmeta"></div></div>
+        <div class="pcard" id="pc1"><div class="pname"></div><div class="prem"></div><div class="pmeta"></div></div>
+      </header>
+      <div id="turnbar">
+        <div class="slots"><span class="slot"></span><span class="slot"></span><span class="slot"></span></div>
+        <div id="hint"></div>
+        <button id="pauseBtn" aria-label="Pause"><span></span><span></span></button>
+      </div>
+    </div>
+    <div id="toast" aria-live="polite"></div>
+    <div id="helpTip">Drag to aim, then flick up to throw</div>
+  </section>
+
+  <div id="modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="card">
+      <h2 id="modalTitle"></h2>
+      <div id="modalBody"></div>
+      <div id="modalBtns"></div>
+    </div>
+  </div>
+
+  <script src="board.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
