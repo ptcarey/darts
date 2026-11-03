@@ -21,6 +21,10 @@
       <canvas id="logo" aria-hidden="true"></canvas>
       <h1>Darts</h1>
       <p class="sub">Count down to exactly zero to win</p>
+      <div class="menu-actions">
+        <button id="startBtn" class="primary big">Start game</button>
+        <button id="practiceBtn" class="secondary">Practice</button>
+      </div>
 
       <div class="field">
         <div class="flabel">Players</div>
@@ -84,7 +88,6 @@
         </div>
       </div>
 
-      <button id="startBtn" class="primary big">Start game</button>
       <button id="howBtn" class="link">How to play</button>
       <p class="foot">dusty.games</p>
     </div>
@@ -93,6 +96,14 @@
   <section id="game" class="screen hidden">
     <canvas id="cv"></canvas>
     <div id="top">
+      <header id="phud" class="hidden">
+        <div class="pcoach">
+          <div class="prow"><span class="ptitle">Practice</span><span id="pstats"></span><button id="pguide" class="chip">Guide</button></div>
+          <div id="pfeed">Drag to aim, then flick up</div>
+          <div id="pdetail">Every throw gets feedback on your flick here.</div>
+          <button id="psuggest" class="chip accent hidden"></button>
+        </div>
+      </header>
       <header id="hud">
         <div class="pcard" id="pc0"><div class="pname"></div><div class="prem"></div><div class="pmeta"></div></div>
         <div class="pcard" id="pc1"><div class="pname"></div><div class="prem"></div><div class="pmeta"></div></div>
@@ -100,12 +111,20 @@
       <div id="turnbar">
         <div class="slots"><span class="slot"></span><span class="slot"></span><span class="slot"></span></div>
         <div id="hint"></div>
+        <div class="seg small" id="ptarget">
+          <button data-v="free" class="on">Free</button>
+          <button data-v="bull">Bull</button>
+          <button data-v="t20">T20</button>
+          <button data-v="doubles" id="pdoubles">Doubles</button>
+        </div>
         <button id="pauseBtn" aria-label="Pause"><span></span><span></span></button>
       </div>
     </div>
     <div id="toast" aria-live="polite"></div>
     <div id="helpTip">Drag to aim, then flick up to throw</div>
   </section>
+
+  <div id="safeProbe" aria-hidden="true"></div>
 
   <div id="modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="card">

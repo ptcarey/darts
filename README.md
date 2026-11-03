@@ -7,6 +7,10 @@ A mobile-first PWA darts game. Plain HTML, CSS and Canvas: no framework, no buil
 - 2 players on one phone, or 1 player vs the computer (Easy, Medium, Hard)
 - Drag to aim, flick up to throw. Flick speed sets the arc: soft lobs and drops low, hard flies flat and high
 - Finishing hints, 3-dart averages, best turn and 100+ counts
+- **Practice** mode: unlimited darts with feedback on every flick (too soft, just right, too hard, sideways), the last flight path drawn on screen, optional targets (Bull, T20, random doubles) and a suggested Flick strength
+- Forgiving flicks: anything within 25% of the ideal speed lands on the aim (`SWEET` in `game.js`); small sideways wobbles are ignored (`SIDE_FORGIVE`)
+- Power bar along the bottom of the screen shows each player's last flick
+- Tuned for iPhone 15 and later (built against the iPhone 16 Pro): full 3x sharpness, clear of the Dynamic Island and home indicator
 - Installable and works offline once loaded
 
 ## Files
@@ -35,7 +39,8 @@ Open http://localhost:8787 (or `cd public && python3 -m http.server 8000`). Add 
 
 At the top of `game.js`:
 
-- `FLICK`: ideal flick speed (screen heights per second) for Gentle, Normal and Strong
+- `FLICK`: ideal flick speed (screen heights per second) for Gentle (the default), Normal and Strong
+- `SWEET`, `SIDE_FORGIVE`: how forgiving flicks are
 - `CPU`: computer accuracy, as spread in millimetres (smaller is more accurate)
 
 ## Battery

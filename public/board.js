@@ -3,7 +3,8 @@
 // All board measurements are in millimetres, matching a regulation board.
 const DartBoard = (() => {
   const NUMBERS = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
-  const MM = { bull: 6.35, outer: 15.9, tIn: 99, tOut: 107, dIn: 162, dOut: 170, edge: 225 };
+  // edge = drawn outer edge. A slim number ring (170 to 196) keeps the scoring area big on a phone.
+  const MM = { bull: 6.35, outer: 15.9, tIn: 99, tOut: 107, dIn: 162, dOut: 170, edge: 196 };
   const C = {
     black: '#1c1c1c', cream: '#f1e4c4', red: '#d3262d', green: '#16884a',
     wire: 'rgba(200,205,212,0.9)', num: '#f4f4f4',
@@ -75,12 +76,12 @@ const DartBoard = (() => {
 
     if (numbers) {
       ctx.fillStyle = C.num;
-      ctx.font = '700 30px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      ctx.font = '700 17px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       for (let i = 0; i < 20; i++) {
         const a = -Math.PI / 2 + i * STEP;
-        ctx.fillText(String(NUMBERS[i]), Math.cos(a) * 197, Math.sin(a) * 197 + 1);
+        ctx.fillText(String(NUMBERS[i]), Math.cos(a) * 183.5, Math.sin(a) * 183.5 + 0.8);
       }
     }
     ctx.restore();

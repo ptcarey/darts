@@ -1,6 +1,6 @@
 'use strict';
 (() => {
-  const { MM, TARGETS, scoreAt, checkout, targetPoint, byLabel, isDouble } = DartBoard;
+  const { NUMBERS, MM, TARGETS, scoreAt, checkout, targetPoint, byLabel, isDouble } = DartBoard;
 
   // ---------- Tuning ----------
   // Ideal flick speed, in screen heights per second, for each strength setting.
@@ -9,6 +9,10 @@
   const CPU = { easy: { sigma: 42, label: 'Easy' }, medium: { sigma: 24, label: 'Medium' }, hard: { sigma: 12, label: 'Hard' } };
   const COLORS = ['#3da5ff', '#ff7a45'];
   const TURN_PAUSE = 1300;
+  // Sweet spot: any flick within this fraction of the ideal speed lands right on the aim.
+  const SWEET = 0.25;
+  // Sideways flicks up to this ratio (sideways / upwards speed) don't drift at all.
+  const SIDE_FORGIVE = 0.15;
   const DEBUG = /[?&]debug/.test(location.search);
 
   // ---------- Helpers ----------
@@ -28,14 +32,16 @@
   };
 
   // ---------- Settings ----------
-  const DEFAULTS = { mode: 'cpu', diff: 'easy', start: 301, legs: 1, flick: 'normal', doubleOut: 'off', p1: '', p2: '' };
+  const DEFAULTS = { mode: 'cpu', diff: 'easy', start: 301, legs: 1, flick: 'gentle', doubleOut: 'off', p1: '', p2: '' };
   const settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
   const saveSettings = () => store.set('settings', settings);
+  // One-off: Gentle is now the starting flick strength, including for phones that saved Normal earlier.
+  if (!settings.gentleDefault) { settings.flick = 'gentle'; settings.gentleDefault = true; saveSettings(); }
 
   // ---------- Game state ----------
   const game = {
     players: [], cur: 0, legNo: 0, legsToWin: 1, bestOf: 1, start: 301, diff: 'easy',
-    turn: null, stuck: [], state: 'idle', token: 0, throwsThisMatch: 0,
+    turn: null, stuck: [], state: 'idle', token: 0, throwsThisMatch: 0, mode: 'match',
   };
   let paused = false;
   const curP = () => game.players[game.cur];
@@ -59,19 +65,20 @@
     const r = cv.getBoundingClientRect();
     if (!r.width || !r.height) return;
     W = r.width; H = r.height;
-    dpr = Math.min(2, window.devicePixelRatio || 1);
+    dpr = Math.min(3, window.devicePixelRatio || 1);   // full sharpness on iPhone (3x)
     cv.width = Math.round(W * dpr);
     cv.height = Math.round(H * dpr);
     const top = $('#turnbar').getBoundingClientRect().bottom - r.top + 8;
-    const zoneH = clamp(H * 0.27, 150, 250);
+    const safeB = $('#safeProbe').offsetHeight || 0;        // iPhone home indicator
+    const zoneH = clamp(H * 0.25, 150, 240) + safeB * 0.5 + 16;
     const availH = Math.max(120, H - top - zoneH);
-    const edge = Math.max(60, Math.min(W * 0.47, availH * 0.5 - 4));
-    G = { top, zoneH, edge, scale: edge / MM.edge, cx: W / 2, cy: top + availH / 2 };
+    const edge = Math.max(60, Math.min(W * 0.485, availH * 0.5 - 4));
+    G = { top, zoneH, edge, safeB, scale: edge / MM.edge, cx: W / 2, cy: top + availH / 2 };
     G.R = MM.dOut * G.scale;
     G.dartS = clamp(H / 760, 0.75, 1.25);
     G.stuckS = G.scale * 0.5;
     G.tipMinY = H - zoneH + 6;
-    G.tipMaxY = H - 62 * G.dartS;
+    G.tipMaxY = H - safeB - 40 - 52 * G.dartS;   // keep the dart clear of the power bar
     G.tipMinX = W * 0.07;
     G.tipMaxX = W * 0.93;
     G.restX = W / 2;
@@ -191,6 +198,9 @@
     ctx.drawImage(bg, 0, 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    if (game.players.length && drawPowerBar(ctx, now)) active = true;
+    if (game.mode === 'practice') drawPracticeOverlay(ctx);
+
     for (const d of game.stuck) {
       const p = mmToPx(d.mx, d.my);
       drawDart(ctx, p.x, p.y, G.stuckS, 0.6, d.lean, d.color, 1);
@@ -226,6 +236,7 @@
       const lean = lerp(0, f.lean, p);
       const alpha = f.fade ? 1 - clamp((p - 0.65) / 0.35, 0, 1) : 1;
       drawDart(ctx, x, y, s, k, lean, f.color, alpha);
+      if (f.trail) f.trail.push([x, y]);
       if (p >= 1) { flight = null; f.resolve(); }
     } else if (holding) {
       drawDart(ctx, tip.x, tip.y, G.dartS, 1, 0, curP().color, 1);
@@ -258,29 +269,46 @@
       ctx.globalAlpha = 1;
     }
 
-    if (meter) {
-      const a = (now - meter.t0) / 1700;
-      if (a >= 1) meter = null;
-      else {
-        active = true;
-        ctx.globalAlpha = a < 0.75 ? 1 : 1 - (a - 0.75) / 0.25;
-        const x = W - 22, y0 = H - G.zoneH + 22, y1 = H - 30, h = y1 - y0;
-        const yAt = (v) => y1 - clamp(v / 2, 0, 1) * h;
-        ctx.fillStyle = 'rgba(0,0,0,0.45)';
-        ctx.fillRect(x - 6, y0, 12, h);
-        ctx.fillStyle = 'rgba(61,220,132,0.75)';
-        ctx.fillRect(x - 6, yAt(1.12), 12, yAt(0.88) - yAt(1.12));
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(x - 10, yAt(meter.v) - 1.5, 20, 3);
-        ctx.font = '700 11px system-ui, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#9fb0c0';
-        ctx.fillText('POWER', x - 4, y0 - 10);
-        ctx.globalAlpha = 1;
-      }
-    }
-
     if (active) requestRender();
+  }
+
+  // Horizontal power bar along the bottom: soft on the left, sweet spot in the middle, hard on the right.
+  // The marker shows the current player's last flick. Returns true while its highlight is animating.
+  function drawPowerBar(c, now) {
+    const y = H - G.safeB - 14, h = 10, x0 = 34, x1 = W - 34, w = x1 - x0;
+    const xAt = (v) => x0 + clamp(v / 2, 0, 1) * w;
+    const p = curP();
+    const human = !p.cpu;
+    c.save();
+    c.globalAlpha = human ? 1 : 0.4;
+    c.fillStyle = 'rgba(255,207,102,0.35)';
+    c.fillRect(x0, y - h / 2, xAt(1 - SWEET) - x0, h);
+    c.fillStyle = 'rgba(61,220,132,0.85)';
+    c.fillRect(xAt(1 - SWEET), y - h / 2, xAt(1 + SWEET) - xAt(1 - SWEET), h);
+    c.fillStyle = 'rgba(255,107,90,0.35)';
+    c.fillRect(xAt(1 + SWEET), y - h / 2, x1 - xAt(1 + SWEET), h);
+    c.font = '700 11px system-ui, -apple-system, sans-serif';
+    c.textBaseline = 'bottom';
+    c.fillStyle = '#c9a24a'; c.textAlign = 'left'; c.fillText('Too soft', x0, y - 8);
+    c.fillStyle = '#3ddc84'; c.textAlign = 'center'; c.fillText('Just right', xAt(1), y - 8);
+    c.fillStyle = '#e0796b'; c.textAlign = 'right'; c.fillText('Too hard', x1, y - 8);
+    let anim = false;
+    if (human && p.lastV != null) {
+      const x = xAt(p.lastV);
+      const age = meter ? (now - meter.t0) / 900 : 1;
+      if (age < 1) anim = true;
+      const r = 6 + (age < 1 ? (1 - age) * 5 : 0);
+      c.fillStyle = '#ffffff';
+      c.strokeStyle = 'rgba(0,0,0,0.6)';
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.fill();
+      c.stroke();
+    }
+    c.restore();
+    if (!anim && meter) meter = null;
+    return anim;
   }
 
   const tweenTip = (to, dur) => new Promise((resolve) => {
@@ -315,7 +343,10 @@
     if (outcome === 'short') to.y = Math.min(land.y, H - G.zoneH + 30);
     if (outcome === 'over') to.y = Math.max(G.top - 40, land.y);
     const lean = clamp((land.x - G.cx) / G.edge, -1, 1) * 0.12 + gauss() * 0.05;
-    await launch({ from: { ...tip }, to, arcH, T, lean, fade: outcome !== 'stick', color: p.color });
+    const trail = game.mode === 'practice' ? [] : null;
+    if (trail) { practice.trail = null; practice.aimMark = lastFlick && lastFlick.aim; }
+    await launch({ from: { ...tip }, to, arcH, T, lean, fade: outcome !== 'stick', color: p.color, trail });
+    if (trail) practice.trail = trail;
     if (tk !== game.token) return;
     if (outcome === 'stick') game.stuck.push({ mx, my, lean, color: p.color });
 
@@ -342,15 +373,21 @@
     const ratio = S0 / sn;
     const a = aimPoint(aim);
     const f = (S0 - sn) / S0;              // positive = too soft, negative = too hard
-    const lx = a.x + clamp(vx / vyUp, -1.2, 1.2) * G.R * 0.6 + gauss() * G.R * 0.012;
-    const fc = clamp(f, -1.5, 1);
-    // Small errors move the dart a little; a really weak flick drops well short.
-    const ly = a.y + (fc * 1.3 + Math.max(0, fc - 0.3) * 2.5) * G.R + gauss() * G.R * 0.012;
+    // Generous sweet spot: inside it the speed error is ignored; outside it errors build gently.
+    const fe = Math.sign(f) * Math.max(0, Math.abs(f) - SWEET);
+    const side = clamp(vx / vyUp, -1.2, 1.2);
+    const se = Math.sign(side) * Math.max(0, Math.abs(side) - SIDE_FORGIVE);
+    const lx = a.x + se * G.R * 0.5 + gauss() * G.R * 0.01;
+    const fc = clamp(fe, -1.3, 0.8);
+    // A really weak flick still drops well short.
+    const ly = a.y + (fc * 1.1 + Math.max(0, fc - 0.3) * 2.5) * G.R + gauss() * G.R * 0.01;
+    lastFlick = { v: sn / S0, side, aim: a };
     const arcH = clamp(H * 0.18 * ratio * ratio, H * 0.035, H * 0.3);
     const T = clamp(0.55 * Math.sqrt(ratio), 0.35, 0.85);
-    meter = { v: sn / S0, t0: performance.now() };
+    meter = { t0: performance.now() };
+    curP().lastV = sn / S0;
     if (DEBUG) console.log('flick', JSON.stringify({ sn: +sn.toFixed(2), f: +f.toFixed(2), aim: [Math.round(a.x), Math.round(a.y)], land: [Math.round(lx), Math.round(ly)], centre: [Math.round(G.cx), Math.round(G.cy)] }));
-    throwDart({ x: lx, y: ly }, arcH, T, f);
+    throwDart({ x: lx, y: ly }, arcH, T, fe);
   }
 
   // ---------- Turn flow ----------
@@ -374,6 +411,7 @@
 
   function onLanded(res) {
     withNum(res);
+    if (game.mode === 'practice') { practiceLanded(res); return; }
     const p = curP(), t = game.turn;
     p.darts++;
     game.throwsThisMatch++;
@@ -504,6 +542,12 @@
   cv.addEventListener('pointerdown', (e) => {
     if (!canHumanThrow() || drag) return;
     e.preventDefault();
+    if (game.mode === 'practice' && game.turn.darts.length >= 3) {
+      game.turn.darts = [];
+      game.stuck = [];
+      practice.trail = null;
+      updateHud();
+    }
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
     drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, tx0: tip.x, ty0: tip.y, samples: [] };
     drag.samples.push({ x: e.clientX, y: e.clientY, t: e.timeStamp, tx: tip.x, ty: tip.y });
@@ -563,6 +607,7 @@
   const avg = (p) => (p.darts ? (p.points / p.darts) * 3 : 0).toFixed(1);
 
   function updateHud() {
+    if (game.mode === 'practice') { updatePracticeHud(); return; }
     game.players.forEach((p, i) => {
       const el = $('#pc' + i);
       el.classList.toggle('active', i === game.cur);
@@ -597,7 +642,7 @@
   }
 
   function updateHelpTip() {
-    const show = game.state === 'aim' && game.players.length && !curP().cpu && game.throwsThisMatch < 3;
+    const show = game.state === 'aim' && game.players.length && !curP().cpu && game.throwsThisMatch < 3 && game.mode !== 'practice';
     $('#helpTip').classList.toggle('show', !!show);
   }
 
@@ -630,12 +675,13 @@
   const HOW = () => `
     <ul>
       <li><b>Aim:</b> touch anywhere low on the screen and drag. The dart moves with your finger and the circle on the board shows where a perfect throw will land.</li>
-      <li><b>Throw:</b> flick your finger up. A gentle flick lobs the dart and drops low, a hard flick flies flat and high. The power bar shows how you went: green is just right.</li>
+      <li><b>Throw:</b> flick your finger up. A gentle flick lobs the dart and drops low, a hard flick flies flat and high. The power bar along the bottom shows how you went: green is just right.</li>
       <li><b>Score:</b> everyone starts on ${game.players.length ? game.start : settings.start}. Each turn is three darts and your score comes off your total.</li>
       ${(game.players.length ? game.doubleOut : settings.doubleOut === 'on')
         ? `<li><b>Finish (double to win):</b> your last dart must land on exactly zero <b>and</b> be a double or the bullseye (50). Going below zero, being left on 1, or reaching zero without a double is a <b>bust</b>: your score goes back to where it was at the start of that turn.</li>`
         : `<li><b>Finish:</b> land on exactly zero to win the leg. Go below zero and it's a <b>bust</b>: your score goes back to where it was at the start of that turn.</li>`}
       <li><b>The board:</b> the thin outer ring is a <b>double</b> (D), the thin inner ring is a <b>treble</b> (T, three times). The centre is the Bull (50), with 25 just around it.</li>
+      <li>New to it? Try <b>Practice</b> from the menu: it tells you after every throw whether your flick was too soft, too hard or just right.</li>
       <li>Flick feeling too touchy or too stiff? Change <b>Flick strength</b>.</li>
     </ul>`;
 
@@ -653,10 +699,16 @@
     if (!game.players.length) return;
     paused = true;
     const resume = () => { paused = false; closeModal(); requestRender(); };
+    const practiceBtns = [
+      { label: 'Resume', primary: true, onClick: resume },
+      { label: 'How the dart travels', onClick: () => showGuide(showPause) },
+      { label: 'Reset practice stats', onClick: () => { resetPracticeStats(); resume(); } },
+      { label: 'Quit to menu', onClick: quitToMenu },
+    ];
     showModal({
       title: 'Paused',
       body: flickSeg(),
-      buttons: [
+      buttons: game.mode === 'practice' ? practiceBtns : [
         { label: 'Resume', primary: true, onClick: resume },
         { label: 'How to play', onClick: () => showHow(showPause) },
         { label: 'Restart match', onClick: () => { paused = false; startMatch(); } },
@@ -670,6 +722,7 @@
       saveSettings();
       syncMenu();
       $('#pauseFlick').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+      if (game.mode === 'practice') { practice.vs = []; $('#psuggest').classList.add('hidden'); }
     });
   }
 
@@ -697,6 +750,243 @@
     });
   }
 
+  // ---------- Practice ----------
+  let lastFlick = null;
+  const practice = { kind: 'free', target: null, trail: null, aimMark: null, darts: 0, sweet: 0, hits: 0, vs: [], suggest: null };
+  const STEP = Math.PI / 10;
+  const STRENGTHS = ['gentle', 'normal', 'strong'];
+  const cap = (v) => v[0].toUpperCase() + v.slice(1);
+
+  function setMode(mode) {
+    game.mode = mode;
+    $('#phud').classList.toggle('hidden', mode !== 'practice');
+    $('#hud').classList.toggle('hidden', mode === 'practice');
+    $('#game').classList.toggle('practice', mode === 'practice');
+  }
+
+  function resetPracticeStats() {
+    Object.assign(practice, { darts: 0, sweet: 0, hits: 0, vs: [], suggest: null });
+    $('#psuggest').classList.add('hidden');
+    updatePracticeHud();
+  }
+
+  function pickTarget(kind) {
+    if (kind === 'bull') return { kind: 'bull', label: 'Bull' };
+    if (kind === 't20') return byLabel('T20');
+    if (kind === 'doubles') {
+      const cur = practice.target && practice.target.label;
+      let t;
+      do { t = byLabel('D' + (1 + Math.floor(Math.random() * 20))); } while (t.label === cur);
+      return t;
+    }
+    return null;
+  }
+
+  function setPracticeTarget(kind) {
+    practice.kind = kind;
+    practice.target = pickTarget(kind);
+    updatePracticeHud();
+    requestRender();
+  }
+
+  const isHit = (t, res) => (t.kind === 'bull' ? res.kind === 'bull' || res.kind === 'outer' : res.label === t.label);
+
+  function drawPracticeOverlay(c) {
+    const t = practice.target;
+    if (t) {
+      c.save();
+      c.translate(G.cx, G.cy);
+      c.scale(G.scale, G.scale);
+      c.strokeStyle = '#ffd34d';
+      c.lineWidth = 3 / G.scale;
+      c.shadowColor = 'rgba(255, 211, 77, 0.8)';
+      c.shadowBlur = 8;
+      c.beginPath();
+      if (t.kind === 'bull') c.arc(0, 0, MM.outer + 1, 0, Math.PI * 2);
+      else {
+        const [r1, r2] = t.kind === 'treble' ? [MM.tIn, MM.tOut] : [MM.dIn, MM.dOut];
+        const a = -Math.PI / 2 + NUMBERS.indexOf(t.num) * STEP;
+        c.arc(0, 0, r2 + 1, a - STEP / 2, a + STEP / 2);
+        c.arc(0, 0, r1 - 1, a + STEP / 2, a - STEP / 2, true);
+        c.closePath();
+      }
+      c.stroke();
+      c.restore();
+    }
+    if (practice.trail && !flight) {
+      // Last flight path, so you can see the arc, plus where you were aiming.
+      c.fillStyle = 'rgba(255,255,255,0.55)';
+      const tr = practice.trail;
+      for (let i = 0; i < tr.length; i += 2) {
+        c.beginPath();
+        c.arc(tr[i][0], tr[i][1], 1.8, 0, Math.PI * 2);
+        c.fill();
+      }
+      const m = practice.aimMark;
+      if (m) {
+        c.strokeStyle = 'rgba(255,255,255,0.75)';
+        c.lineWidth = 1.5;
+        c.setLineDash([3, 3]);
+        c.beginPath();
+        c.arc(m.x, m.y, 8, 0, Math.PI * 2);
+        c.stroke();
+        c.setLineDash([]);
+        c.font = '700 11px system-ui, sans-serif';
+        c.textAlign = 'left';
+        c.textBaseline = 'middle';
+        c.fillStyle = 'rgba(255,255,255,0.85)';
+        c.fillText('aim', m.x + 11, m.y);
+      }
+    }
+  }
+
+  function coachFor(v, side) {
+    let head, cls, detail;
+    if (v < 0.55) { head = 'Much too soft'; cls = 'bad'; detail = 'The dart lobbed and dropped well below your aim. Flick faster.'; }
+    else if (v < 1 - SWEET) { head = 'A little soft'; cls = 'warn'; detail = 'High lob, landed below your aim. Flick a touch faster.'; }
+    else if (v <= 1 + SWEET) { head = 'Just right!'; cls = 'good'; detail = 'Nice arc, straight onto your aim. Keep that speed.'; }
+    else if (v <= 1.6) { head = 'A little hard'; cls = 'warn'; detail = 'Flat and fast, landed above your aim. Ease off a little.'; }
+    else { head = 'Much too hard'; cls = 'bad'; detail = 'Flew flat and high. Flick more gently.'; }
+    if (Math.abs(side) > SIDE_FORGIVE) {
+      detail = `Your flick went ${side < 0 ? 'left' : 'right'}, so the dart drifted. Flick straight up.` + (cls === 'good' ? ' Speed was spot on.' : '');
+    }
+    return { head: `${head}  ·  ${Math.round(v * 100)}% speed`, cls, detail };
+  }
+
+  function practiceLanded(res) {
+    const t = game.turn;
+    t.darts.push(res);
+    practice.darts++;
+    game.throwsThisMatch++;
+    if (lastFlick) {
+      const fb = coachFor(lastFlick.v, lastFlick.side);
+      if (Math.abs(1 - lastFlick.v) <= SWEET) practice.sweet++;
+      practice.vs.push(lastFlick.v);
+      $('#pfeed').textContent = fb.head;
+      $('#pfeed').className = fb.cls;
+      $('#pdetail').textContent = fb.detail;
+    }
+    if (practice.target && isHit(practice.target, res)) {
+      practice.hits++;
+      toast('Hit!', 'good');
+      if (practice.kind === 'doubles') practice.target = pickTarget('doubles');
+    }
+    checkSuggestion();
+    game.state = 'aim';
+    setTipForPlayer(curP());
+    updatePracticeHud();
+    requestRender();
+  }
+
+  // If someone's natural flick is consistently soft or hard, suggest a better strength setting.
+  function checkSuggestion() {
+    const vs = practice.vs;
+    if (vs.length < 6 || vs.length % 3) return;
+    const last = vs.slice(-6).sort((a, b) => a - b);
+    const med = (last[2] + last[3]) / 2;
+    const i = STRENGTHS.indexOf(settings.flick);
+    let to = null;
+    if (med < 0.72 && i > 0) to = STRENGTHS[i - 1];
+    else if (med > 1.35 && i < 2) to = STRENGTHS[i + 1];
+    practice.suggest = to;
+    const b = $('#psuggest');
+    b.classList.toggle('hidden', !to);
+    if (to) b.textContent = `Switch to ${cap(to)}`;
+  }
+
+  function applySuggestion() {
+    if (!practice.suggest) return;
+    settings.flick = practice.suggest;
+    saveSettings();
+    syncMenu();
+    practice.vs = [];
+    practice.suggest = null;
+    $('#psuggest').classList.add('hidden');
+    $('#pfeed').textContent = `Flick strength: ${cap(settings.flick)}`;
+    $('#pfeed').className = 'good';
+    $('#pdetail').textContent = 'Your natural flick should now land in the sweet spot more often.';
+    updatePracticeHud();
+  }
+
+  function updatePracticeHud() {
+    const pct = practice.darts ? Math.round((practice.sweet / practice.darts) * 100) : 0;
+    let st = `${practice.darts} darts  ·  ${pct}% just right`;
+    if (practice.target) st += `  ·  ${practice.hits} hits`;
+    $('#pstats').textContent = st;
+    const t = game.turn;
+    document.querySelectorAll('.slot').forEach((el, i) => {
+      const d = t && t.darts[i];
+      el.textContent = d ? (d.value ? d.label : '0') : '';
+      el.classList.toggle('miss', !!d && !d.value);
+      el.classList.toggle('next', !!t && i === t.darts.length);
+    });
+    const tg = practice.target;
+    $('#pdoubles').textContent = practice.kind === 'doubles' && tg ? tg.label : 'Doubles';
+    $('#hint').innerHTML = tg ? 'Aim for <b>' + esc(tg.kind === 'bull' ? 'the Bull' : labelLong(tg)) + '</b>'
+      : (t && t.darts.length >= 3 ? 'Touch to clear and go again' : `Free throw  ·  ${cap(settings.flick)} flick`);
+  }
+
+  const GUIDE_SVG = `
+    <svg class="guide-svg" viewBox="0 0 320 170" role="img" aria-label="Side view of three dart flights: too soft, just right and too hard">
+      <rect x="292" y="28" width="8" height="112" rx="3" fill="#d3262d"/>
+      <rect x="290" y="78" width="12" height="12" rx="6" fill="#16884a"/>
+      <text x="296" y="20" fill="#9fb0c0" font-size="11" text-anchor="middle">board</text>
+      <line x1="24" y1="84" x2="288" y2="84" stroke="#fff" stroke-opacity="0.25" stroke-dasharray="4 5"/>
+      <text x="236" y="98" fill="#9fb0c0" font-size="10" text-anchor="middle">your aim</text>
+      <path d="M28 150 Q150 -20 290 122" fill="none" stroke="#ffcf66" stroke-width="2.5" stroke-dasharray="6 5"/>
+      <path d="M28 150 Q150 22 290 84" fill="none" stroke="#3ddc84" stroke-width="3"/>
+      <path d="M28 150 Q170 92 290 44" fill="none" stroke="#ff8a7a" stroke-width="2.5" stroke-dasharray="2 4"/>
+      <circle cx="28" cy="150" r="5" fill="#3da5ff"/>
+      <text x="38" y="166" fill="#9fb0c0" font-size="10">your flick</text>
+      <text x="112" y="16" fill="#ffcf66" font-size="11" font-weight="700">Too soft: high lob, lands low</text>
+      <text x="78" y="72" fill="#3ddc84" font-size="11" font-weight="700">Just right</text>
+      <text x="150" y="136" fill="#ff8a7a" font-size="11" font-weight="700">Too hard: flat, lands high</text>
+    </svg>`;
+
+  function showGuide(back) {
+    showModal({
+      title: 'How the dart travels',
+      body: `${GUIDE_SVG}
+        <ul>
+          <li><b>Aim:</b> drag the dart. The crosshair shows where a just-right flick lands.</li>
+          <li><b>Speed is the key.</b> Too soft and the dart lobs high and drops below the crosshair (very soft falls short). Too hard and it flies flat and lands above. The sweet spot is generous: anywhere in the green band of the power bar along the bottom of the screen lands on your aim. The white dot shows your last flick.</li>
+          <li><b>Flick straight up.</b> A sideways flick makes the dart drift that way.</li>
+          <li><b>One smooth motion:</b> drag to aim, pause, then flick and lift your finger as you go. If you stop before lifting, nothing is thrown, so you can re-aim.</li>
+          <li>A quick flick about the length of your thumb is a good start on <b>Gentle</b>, the starting setting. If you're always soft or hard, practice will suggest a better <b>Flick strength</b>.</li>
+        </ul>`,
+      buttons: [{ label: 'Got it', primary: true, onClick: back || closeModal }],
+    });
+  }
+
+  function startPractice() {
+    if (pendingReload && reloadForUpdate()) return;
+    game.token++;
+    paused = false;
+    resetTransient();
+    closeModal();
+    game.players = [newPlayer('You', false, COLORS[0])];
+    game.cur = 0;
+    game.throwsThisMatch = 0;
+    game.turn = { startRem: 0, darts: [], points: 0 };
+    setMode('practice');
+    resetPracticeStats();
+    $('#pfeed').textContent = 'Drag to aim, then flick up';
+    $('#pfeed').className = '';
+    $('#pdetail').textContent = 'Every throw gets feedback on your flick here.';
+    showScreen('game');
+    setPracticeTarget(practice.kind);
+    layout();
+    setTipForPlayer(curP());
+    game.state = 'aim';
+    updatePracticeHud();
+    requestAnimationFrame(layout);
+    if (!store.get('seenGuide', false)) {
+      store.set('seenGuide', true);
+      paused = true;
+      showGuide(() => { paused = false; closeModal(); });
+    }
+  }
+
   // ---------- Screens ----------
   function showScreen(id) {
     $('#menu').classList.toggle('hidden', id !== 'menu');
@@ -704,7 +994,7 @@
   }
 
   function newPlayer(name, cpu, color) {
-    return { name, cpu, color, rem: 0, legs: 0, points: 0, darts: 0, best: 0, tons: 0, lastTip: null };
+    return { name, cpu, color, rem: 0, legs: 0, points: 0, darts: 0, best: 0, tons: 0, lastTip: null, lastV: null };
   }
 
   function resetTransient() {
@@ -722,6 +1012,7 @@
     const n1 = (settings.p1 || '').trim() || 'Player 1';
     const n2 = vsCpu ? 'Computer' : (settings.p2 || '').trim() || 'Player 2';
     game.players = [newPlayer(n1, false, COLORS[0]), newPlayer(n2, vsCpu, COLORS[1])];
+    setMode('match');
     game.diff = settings.diff;
     game.start = settings.start;
     game.bestOf = settings.legs;
@@ -743,6 +1034,7 @@
     resetTransient();
     game.players = [];
     game.state = 'idle';
+    setMode('match');
     closeModal();
     showScreen('menu');
     if (pendingReload) reloadForUpdate();
@@ -779,13 +1071,22 @@
       el.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.blur(); });
     }
     $('#startBtn').addEventListener('click', startMatch);
+    $('#practiceBtn').addEventListener('click', startPractice);
+    $('#pguide').addEventListener('click', () => { paused = true; showGuide(() => { paused = false; closeModal(); }); });
+    $('#ptarget').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      $('#ptarget').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+      setPracticeTarget(b.dataset.v);
+    });
+    $('#psuggest').addEventListener('click', applySuggestion);
     $('#howBtn').addEventListener('click', () => showHow());
     $('#pauseBtn').addEventListener('click', showPause);
     syncMenu();
 
     const logo = $('#logo');
     const ld = Math.min(2, window.devicePixelRatio || 1);
-    const size = 132;
+    const size = 96;
     logo.width = size * ld;
     logo.height = size * ld;
     const lc = logo.getContext('2d');
