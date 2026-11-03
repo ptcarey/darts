@@ -1,6 +1,6 @@
 {
   "name": "Pal Al’s Darts",
-  "short_name": "Pal Al’s Darts",
+  "short_name": "Al’s Darts",
   "description": "A two player darts game. Play 301 or 501 against a friend or the computer.",
   "start_url": "./",
   "scope": "./",
