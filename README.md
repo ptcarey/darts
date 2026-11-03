@@ -24,7 +24,6 @@ A mobile-first PWA darts game. Plain HTML, CSS and Canvas: no framework, no buil
 ## Run locally
 
 ```
-cd darts
 python3 -m http.server 8000
 ```
 
@@ -44,7 +43,7 @@ The canvas only redraws while a finger is down, a dart is flying or a score labe
 ## Deploy to Cloudflare Pages
 
 1. Cloudflare dashboard > Workers & Pages > Create > Pages > Connect to Git, then pick the repo.
-2. Build settings: Framework preset **None**, build command **blank**, build output directory **`darts`** (or `/` if these files are moved to the repo root).
+2. Build settings: Framework preset **None**, build command **blank**, build output directory **`/`**, production branch **`main`**.
 3. Once deployed, open the project > Custom domains > add **`darts.dusty.games`**. Because `dusty.games` is on Cloudflare DNS, the CNAME is created for you.
 4. Every push to the production branch redeploys. No version bump is needed: players pick it up automatically (see below).
 
