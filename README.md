@@ -1,4 +1,4 @@
-# Darts (darts.dusty.games)
+# Pal Al’s Darts (darts.dusty.games)
 
 A mobile-first PWA darts game. Plain HTML, CSS and Canvas: no framework, no build step.
 

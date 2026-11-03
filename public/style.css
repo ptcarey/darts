@@ -48,7 +48,8 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 }
 .menu-inner { width: 100%; max-width: 420px; display: flex; flex-direction: column; }
 #logo { width: 96px; height: 96px; align-self: center; margin-bottom: 4px; }
-h1 { margin: 4px 0 2px; text-align: center; font-size: 40px; letter-spacing: 1px; }
+/* Serif title so the lowercase l in "Al" can't be misread as a capital I ("AI"). */
+h1 { margin: 6px 0 2px; text-align: center; font-family: Georgia, "Times New Roman", serif; font-size: 30px; font-weight: 700; letter-spacing: 0.3px; }
 .sub { margin: 0 0 16px; text-align: center; color: var(--muted); }
 .field { margin-bottom: 14px; min-width: 0; }
 .flabel { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.6px; }
@@ -77,6 +78,8 @@ input:focus { border-color: var(--accent); }
 .big { margin-top: 8px; padding: 17px; font-size: 19px; }
 .menu-actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 20px; }
 .menu-actions .big { margin-top: 0; }
+#startBtn { background: #22c55e; color: #04240f; }
+#startBtn:active { background: #1aa84d; }
 #practiceBtn { padding: 0 20px; }
 .link { background: none; border: 0; color: var(--muted); padding: 14px; text-decoration: underline; }
 .foot { text-align: center; color: #5d7080; font-size: 13px; margin: 6px 0 0; }
