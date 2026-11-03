@@ -11,6 +11,8 @@ A mobile-first PWA darts game. Plain HTML, CSS and Canvas: no framework, no buil
 
 ## Files
 
+Site files live in `public/` (served as static assets by a Cloudflare Worker, configured in `wrangler.jsonc`).
+
 | File | Purpose |
 |------|---------|
 | `index.html` | Screens and HUD |
@@ -24,10 +26,10 @@ A mobile-first PWA darts game. Plain HTML, CSS and Canvas: no framework, no buil
 ## Run locally
 
 ```
-python3 -m http.server 8000
+npx wrangler dev
 ```
 
-Open http://localhost:8000. Add `?debug` to log flick speed and landing point to the console (handy for tuning on a real phone).
+Open http://localhost:8787 (or `cd public && python3 -m http.server 8000`). Add `?debug` to log flick speed and landing point to the console (handy for tuning on a real phone).
 
 ## Tuning
 
@@ -40,12 +42,12 @@ At the top of `game.js`:
 
 The canvas only redraws while a finger is down, a dart is flying or a score label is fading. When nothing is moving, nothing is drawn. Pixel density is capped at 2x and the board is pre-rendered once per resize.
 
-## Deploy to Cloudflare Pages
+## Deploy (Cloudflare Workers, static assets)
 
-1. Cloudflare dashboard > Workers & Pages > Create > Pages > Connect to Git, then pick the repo.
-2. Build settings: Framework preset **None**, build command **blank**, build output directory **`/`**, production branch **`main`**.
-3. Once deployed, open the project > Custom domains > add **`darts.dusty.games`**. Because `dusty.games` is on Cloudflare DNS, the CNAME is created for you.
-4. Every push to the production branch redeploys. No version bump is needed: players pick it up automatically (see below).
+1. Cloudflare dashboard > Workers & Pages > Create > Workers > Import a repository > `ptcarey/darts`.
+2. Worker name **`darts`** (must match `name` in `wrangler.jsonc`). Build command blank, deploy command `npx wrangler deploy`, root directory `/`, production branch `main`.
+3. Worker > Settings > Domains & Routes > Add > Custom domain > **`darts.dusty.games`**.
+4. Every push to `main` redeploys. No version bump is needed: players pick it up automatically (see below).
 
 ## How updates reach players
 
