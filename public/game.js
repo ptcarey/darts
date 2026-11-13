@@ -75,17 +75,24 @@
     const edge = Math.max(60, Math.min(W * 0.485, availH * 0.5 - 4));
     G = { top, zoneH, edge, safeB, scale: edge / MM.edge, cx: W / 2, cy: top + availH / 2 };
     G.R = MM.dOut * G.scale;
-    G.dartS = clamp(H / 760, 0.75, 1.25);
+    G.dartS = clamp(H * 0.0024, 1.4, 2.4);    // dart in hand is about a quarter of the screen tall
     G.stuckS = G.scale * 0.5;
-    G.tipMinY = H - zoneH + 6;
-    G.tipMaxY = H - safeB - 40 - 52 * G.dartS;   // keep the dart clear of the power bar
+    // Aiming works in a 'virtual' range (so sensitivity stays comfortable); the big dart is
+    // drawn in a smaller on-screen range so its flights stay visible above the power bar.
+    const restVis = H - safeB - 205;
+    G.visHalf = 34;
+    G.tipMinY = restVis - 80;
+    G.tipMaxY = restVis + 80;
     G.tipMinX = W * 0.07;
     G.tipMaxX = W * 0.93;
     G.restX = W / 2;
-    G.restY = (G.tipMinY + G.tipMaxY) / 2;
+    G.restY = restVis;
     G.gx = (edge * 1.05) / (W * 0.43);
     G.gy = (G.R * 1.15) / Math.max(30, (G.tipMaxY - G.tipMinY) / 2);
     buildBg();
+    const ht = $('#helpTip');   // sits just under the board, clear of the big dart
+    ht.style.top = Math.round(G.cy + G.edge + 6) + 'px';
+    ht.style.bottom = 'auto';
     if (game.players.length) setTipForPlayer(curP());
     requestRender();
   }
@@ -128,6 +135,8 @@
 
   // Map the dart-in-hand position to where a perfect flick lands.
   const aimPoint = (t) => ({ x: G.cx + (t.x - G.restX) * G.gx, y: G.cy + (t.y - G.restY) * G.gy });
+  // Where the dart in hand is drawn on screen for a given aim position.
+  const tipScreen = () => ({ x: tip.x, y: G.restY + (tip.y - G.restY) * G.visHalf / 80 });
   const tipForAim = (p) => ({
     x: clamp(G.restX + (p.x - G.cx) / G.gx, G.tipMinX, G.tipMaxX),
     y: clamp(G.restY + (p.y - G.cy) / G.gy, G.tipMinY, G.tipMaxY),
@@ -139,48 +148,89 @@
     tip = { x: clamp(G.restX + o.x, G.tipMinX, G.tipMaxX), y: clamp(G.restY + o.y, G.tipMinY, G.tipMaxY) };
   }
 
-  function drawDart(c, x, y, s, k, lean, color, alpha) {
+  // Lighten (f > 0) or darken (f < 0) a #rrggbb colour.
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    const t = f < 0 ? 0 : 255, p = Math.abs(f);
+    const ch = (v) => Math.round(v + (t - v) * p);
+    return `rgb(${ch(n >> 16)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+  }
+
+  // A steel-barrel dart with four-vane (X) flights, seen from behind and slightly below.
+  // Tip at (x, y). s = size, k = length along the dart (1 = held upright in hand,
+  // small = pointing away into the board), lean = sideways tilt, spin = flight rotation.
+  function drawDart(c, x, y, s, k, lean, color, alpha, spin = 0) {
     c.save();
     c.globalAlpha = alpha;
     c.translate(x, y);
     c.rotate(lean);
-    c.scale(s, s * k);
+    c.scale(s, s);
+    const L = (v) => v * k;
     // point
-    c.fillStyle = '#d9dde2';
+    c.fillStyle = '#e8ebef';
     c.beginPath();
-    c.moveTo(0, 0); c.lineTo(1.7, 18); c.lineTo(-1.7, 18);
+    c.moveTo(0, 0); c.lineTo(1.9, L(13)); c.lineTo(-1.9, L(13));
     c.closePath();
     c.fill();
-    // barrel
-    const g = c.createLinearGradient(-5, 0, 5, 0);
-    g.addColorStop(0, '#59626c');
-    g.addColorStop(0.45, '#eef1f4');
-    g.addColorStop(1, '#454d56');
+    // barrel: tapered, polished steel
+    const bw = 7.6;
+    const g = c.createLinearGradient(-bw, 0, bw, 0);
+    g.addColorStop(0, '#35404b');
+    g.addColorStop(0.32, '#f6f8fa');
+    g.addColorStop(0.58, '#a3afbb');
+    g.addColorStop(1, '#262d35');
     c.fillStyle = g;
     c.beginPath();
-    if (c.roundRect) c.roundRect(-4.6, 17, 9.2, 32, 4); else c.rect(-4.6, 17, 9.2, 32);
+    c.moveTo(-2.6, L(12)); c.lineTo(2.6, L(12)); c.lineTo(bw, L(19)); c.lineTo(bw, L(39));
+    c.lineTo(3.6, L(45)); c.lineTo(-3.6, L(45)); c.lineTo(-bw, L(39)); c.lineTo(-bw, L(19));
+    c.closePath();
     c.fill();
-    c.strokeStyle = 'rgba(0,0,0,0.35)';
-    c.lineWidth = 0.9;
-    c.beginPath();
-    for (let yy = 24; yy < 45; yy += 4) { c.moveTo(-4.6, yy); c.lineTo(4.6, yy); }
-    c.stroke();
+    if (k > 0.3) {
+      c.strokeStyle = 'rgba(0,0,0,0.38)';
+      c.lineWidth = 0.9;
+      c.beginPath();
+      for (let v = 21; v <= 37; v += 3.2) { c.moveTo(-bw, L(v)); c.lineTo(bw, L(v)); }
+      c.stroke();
+    }
     // shaft
-    c.fillStyle = '#222';
-    c.fillRect(-1.7, 48, 3.4, 26);
-    // flights
-    c.fillStyle = color;
+    c.fillStyle = shade(color, -0.55);
+    c.fillRect(-2.1, L(44), 4.2, L(14));
+    // flights: four separate fins in an X, back ones first
+    const cy0 = L(62), R = 33, sq = lerp(1, 0.66, k);
+    const vanes = [0, 1, 2, 3].map((n) => spin + Math.PI / 4 + n * Math.PI / 2).sort((a, b) => Math.sin(a) - Math.sin(b));
+    const dark = shade(color, -0.5);
+    for (const a of vanes) {
+      const ux = Math.cos(a) * R, uy = Math.sin(a) * R * sq;
+      const len = Math.hypot(ux, uy) || 1, nx = -uy / len, ny = ux / len;
+      // Each fin is a symmetric kite along its own arm; arms sweep back slightly when held upright.
+      const pt = (f, w) => [ux * f + nx * w, cy0 + uy * f + ny * w + f * 10 * k];
+      c.beginPath();
+      c.moveTo(...pt(0, 0));
+      c.lineTo(...pt(0.5, 8));
+      c.lineTo(...pt(1, 4.5));
+      c.lineTo(...pt(1, -4.5));
+      c.lineTo(...pt(0.5, -8));
+      c.closePath();
+      c.fillStyle = shade(color, Math.sin(a) < 0 ? -0.2 : 0.1);
+      c.fill();
+      c.strokeStyle = dark;
+      c.lineWidth = 1.3;
+      c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,0.55)';
+      c.lineWidth = 1.4;
+      c.beginPath();
+      c.moveTo(...pt(0.18, 1.5));
+      c.lineTo(...pt(0.88, 1.5));
+      c.stroke();
+    }
+    // hub where the fins meet
+    c.fillStyle = dark;
     c.beginPath();
-    c.moveTo(0, 62); c.lineTo(-16, 86); c.lineTo(-13, 100); c.lineTo(0, 93); c.lineTo(13, 100); c.lineTo(16, 86);
-    c.closePath();
-    c.fill();
-    c.fillStyle = 'rgba(255,255,255,0.35)';
-    c.beginPath();
-    c.moveTo(0, 62); c.lineTo(-16, 86); c.lineTo(-8, 88);
-    c.closePath();
+    c.arc(0, cy0, 2.6, 0, Math.PI * 2);
     c.fill();
     c.restore();
   }
+
 
   function frame(now) {
     rafId = 0;
@@ -205,8 +255,9 @@
         x: lerp(f.from.x, f.to.x, p),
         y: lerp(f.from.y, f.to.y, p) - f.arcH * 4 * p * (1 - p),
         s: 1 / lerp(1 / G.dartS, 1 / G.stuckS, p),       // perspective shrink
-        k: lerp(1, 0.6, p),
+        k: lerp(1, STUCK_K, p),
         lean: lerp(0, f.lean, p),
+        spin: f.spin0 + p * 1.1,
         alpha: f.fade ? 1 - clamp((p - 0.65) / 0.35, 0, 1) : 1,
       };
     }
@@ -219,12 +270,6 @@
       wz = cam.z;
       wx = G.cx - cam.fx * wz;
       wy = G.cy - cam.fy * wz;
-      if (fl) {
-        // Pan if needed so the dart never leaves the screen.
-        const m = 48, sx = wx + fl.x * wz, sy = wy + fl.y * wz;
-        if (sy < G.top + m) wy += G.top + m - sy; else if (sy > H - m) wy += H - m - sy;
-        if (sx < m) wx += m - sx; else if (sx > W - m) wx += W - m - sx;
-      }
     }
     const zoomed = wz > 1;
 
@@ -239,17 +284,31 @@
     if (drawHitFlash(ctx, now)) active = true;
     for (const d of game.stuck) {
       const p = mmToPx(d.mx, d.my);
-      drawDart(ctx, p.x, p.y, G.stuckS, 0.6, d.lean, d.color, 1);
+      drawDart(ctx, p.x, p.y, G.stuckS, STUCK_K, d.lean, d.color, 1, d.spin || 0);
     }
     if (fl) {
-      drawDart(ctx, fl.x, fl.y, fl.s, fl.k, fl.lean, fl.f.color, fl.alpha);
+      // Speed streak behind the dart.
+      const st = fl.f.streak;
+      st.push([fl.x, fl.y + 60 * fl.k * fl.s]);
+      if (st.length > 7) st.shift();
+      if (st.length > 1) {
+        ctx.lineCap = 'round';
+        for (let n = 1; n < st.length; n++) {
+          ctx.strokeStyle = `rgba(255,255,255,${0.5 * n / st.length * fl.alpha})`;
+          ctx.lineWidth = (2 + 5 * fl.s) * n / st.length;
+          ctx.beginPath();
+          ctx.moveTo(st[n - 1][0], st[n - 1][1]);
+          ctx.lineTo(st[n][0], st[n][1]);
+          ctx.stroke();
+        }
+      }
+      drawDart(ctx, fl.x, fl.y, fl.s, fl.k, fl.lean, fl.f.color, fl.alpha, fl.spin);
       if (fl.f.trail) fl.f.trail.push([fl.x, fl.y]);
       if (fl.p >= 1) { flight = null; fl.f.resolve(); }
     }
 
     // ----- screen layer (never zooms) -----
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (game.players.length && drawPowerBar(ctx, now)) active = true;
 
     const human = game.players.length && !curP().cpu;
     const holding = (game.state === 'aim' && human && !flight) || game.state === 'cpuAim';
@@ -269,7 +328,8 @@
       ctx.arc(a.x, a.y, 2.2, 0, Math.PI * 2);
       ctx.fill();
     }
-    if (!fl && holding && !cam) drawDart(ctx, tip.x, tip.y, G.dartS, 1, 0, curP().color, 1);
+    if (!fl && holding && !cam) { const ts = tipScreen(); drawDart(ctx, ts.x, ts.y, G.dartS, 1, 0, curP().color, 1, 0); }
+    if (game.players.length && drawPowerBar(ctx, now)) active = true;
 
     if (cam && cam.ended) { const done = camShot.resolve; camShot = null; done(); }
 
@@ -348,14 +408,15 @@
   const CAM_OUT = 380;      // ms to zoom back out
   let camShot = null;       // { land, t0, T (ms), resolve }
   let hitFlash = null;      // { mx, my, res, t0 }
-  const easeIO = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const easeIO = (t) => 0.5 - 0.5 * Math.cos(Math.PI * t);   // gentle sine ease, no sudden starts
+  const STUCK_K = 0.4;      // how a stuck dart looks: mostly its flights, seen from behind
 
   function camAt(now) {
     const c = camShot;
     if (!c || !G) return null;
     const t = now - c.t0;
     let e;
-    if (t <= c.T) e = easeIO(clamp((t - 0.12 * c.T) / (0.88 * c.T), 0, 1));
+    if (t <= c.T) e = easeIO(clamp((t - 0.3 * c.T) / (0.7 * c.T), 0, 1));
     else if (t <= c.T + CAM_HOLD) e = 1;
     else e = 1 - easeIO(clamp((t - c.T - CAM_HOLD) / CAM_OUT, 0, 1));
     return {
@@ -438,11 +499,12 @@
     if (!p.cpu && outcome === 'stick') {
       camDone = new Promise((resolve) => { camShot = { land: { x: land.x, y: land.y }, t0: performance.now(), T: T * 1000, resolve }; });
     }
-    await launch({ from: { ...tip }, to, arcH, T, lean, fade: outcome !== 'stick', color: p.color, trail });
+    const spin0 = gauss() * 0.25;
+    await launch({ from: tipScreen(), to, arcH, T, lean, spin0, streak: [], fade: outcome !== 'stick', color: p.color, trail });
     if (trail) practice.trail = trail;
     if (tk !== game.token) return;
     if (outcome === 'stick') {
-      game.stuck.push({ mx, my, lean, color: p.color });
+      game.stuck.push({ mx, my, lean, color: p.color, spin: spin0 + 1.1 });
       if (res.value) hitFlash = { mx, my, res, t0: performance.now() };
     }
     if (camDone) {
@@ -482,7 +544,7 @@
     // A really weak flick still drops well short.
     const ly = a.y + (fc * 1.1 + Math.max(0, fc - 0.3) * 2.5) * G.R + gauss() * G.R * 0.01;
     lastFlick = { v: sn / S0, side, aim: a };
-    const arcH = clamp(H * 0.18 * ratio * ratio, H * 0.035, H * 0.3);
+    const arcH = clamp(H * 0.07 * Math.pow(ratio, 1.5), H * 0.02, H * 0.13);   // gentle curve, not a lob
     const T = clamp(0.62 * Math.sqrt(ratio), 0.48, 0.92);   // a little longer so the camera can follow
     meter = { t0: performance.now() };
     curP().lastV = sn / S0;
@@ -618,7 +680,7 @@
       await wait(150);
       if (tk !== game.token) return;
       const land = mmToPx(aim.x + gauss() * sigma, aim.y + gauss() * sigma);
-      await throwDart(land, H * (0.16 + Math.random() * 0.06), 0.55, null);
+      await throwDart(land, H * (0.06 + Math.random() * 0.03), 0.6, null);
     }
   }
 
