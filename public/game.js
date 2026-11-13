@@ -194,21 +194,66 @@
       if (p >= 1) { const done = tipTween.resolve; tipTween = null; done(); } else active = true;
     }
 
+    // Flying dart position (world coordinates, i.e. the un-zoomed screen layout).
+    let fl = null;
+    if (flight) {
+      active = true;
+      const f = flight;
+      const p = clamp((now - f.t0) / (f.T * 1000), 0, 1);
+      fl = {
+        f, p,
+        x: lerp(f.from.x, f.to.x, p),
+        y: lerp(f.from.y, f.to.y, p) - f.arcH * 4 * p * (1 - p),
+        s: 1 / lerp(1 / G.dartS, 1 / G.stuckS, p),       // perspective shrink
+        k: lerp(1, 0.6, p),
+        lean: lerp(0, f.lean, p),
+        alpha: f.fade ? 1 - clamp((p - 0.65) / 0.35, 0, 1) : 1,
+      };
+    }
+
+    // Throw camera: zoom towards the landing spot while following the dart.
+    const cam = camAt(now);
+    if (cam) active = true;
+    let wz = 1, wx = 0, wy = 0;
+    if (cam && cam.z > 1.0005) {
+      wz = cam.z;
+      wx = G.cx - cam.fx * wz;
+      wy = G.cy - cam.fy * wz;
+      if (fl) {
+        // Pan if needed so the dart never leaves the screen.
+        const m = 48, sx = wx + fl.x * wz, sy = wy + fl.y * wz;
+        if (sy < G.top + m) wy += G.top + m - sy; else if (sy > H - m) wy += H - m - sy;
+        if (sx < m) wx += m - sx; else if (sx > W - m) wx += W - m - sx;
+      }
+    }
+    const zoomed = wz > 1;
+
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(bg, 0, 0);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (zoomed) { ctx.fillStyle = '#0b1118'; ctx.fillRect(0, 0, cv.width, cv.height); }
+    ctx.setTransform(dpr * wz, 0, 0, dpr * wz, dpr * wx, dpr * wy);
+    ctx.drawImage(bg, 0, 0, W, H);
+    if (zoomed) DartBoard.draw(ctx, G.cx, G.cy, G.scale);   // redraw crisp while zoomed
 
-    if (game.players.length && drawPowerBar(ctx, now)) active = true;
+    // ----- world layer (zooms with the camera) -----
     if (game.mode === 'practice') drawPracticeOverlay(ctx);
-
+    if (drawHitFlash(ctx, now)) active = true;
     for (const d of game.stuck) {
       const p = mmToPx(d.mx, d.my);
       drawDart(ctx, p.x, p.y, G.stuckS, 0.6, d.lean, d.color, 1);
     }
+    if (fl) {
+      drawDart(ctx, fl.x, fl.y, fl.s, fl.k, fl.lean, fl.f.color, fl.alpha);
+      if (fl.f.trail) fl.f.trail.push([fl.x, fl.y]);
+      if (fl.p >= 1) { flight = null; fl.f.resolve(); }
+    }
+
+    // ----- screen layer (never zooms) -----
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (game.players.length && drawPowerBar(ctx, now)) active = true;
 
     const human = game.players.length && !curP().cpu;
     const holding = (game.state === 'aim' && human && !flight) || game.state === 'cpuAim';
-    if (game.state === 'aim' && human && !flight) {
+    if (game.state === 'aim' && human && !flight && !cam) {
       const a = aimPoint(tip);
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.lineWidth = 1.6;
@@ -224,23 +269,9 @@
       ctx.arc(a.x, a.y, 2.2, 0, Math.PI * 2);
       ctx.fill();
     }
+    if (!fl && holding && !cam) drawDart(ctx, tip.x, tip.y, G.dartS, 1, 0, curP().color, 1);
 
-    if (flight) {
-      active = true;
-      const f = flight;
-      const p = clamp((now - f.t0) / (f.T * 1000), 0, 1);
-      const x = lerp(f.from.x, f.to.x, p);
-      const y = lerp(f.from.y, f.to.y, p) - f.arcH * 4 * p * (1 - p);
-      const s = 1 / lerp(1 / G.dartS, 1 / G.stuckS, p);       // perspective shrink
-      const k = lerp(1, 0.6, p);
-      const lean = lerp(0, f.lean, p);
-      const alpha = f.fade ? 1 - clamp((p - 0.65) / 0.35, 0, 1) : 1;
-      drawDart(ctx, x, y, s, k, lean, f.color, alpha);
-      if (f.trail) f.trail.push([x, y]);
-      if (p >= 1) { flight = null; f.resolve(); }
-    } else if (holding) {
-      drawDart(ctx, tip.x, tip.y, G.dartS, 1, 0, curP().color, 1);
-    }
+    if (cam && cam.ended) { const done = camShot.resolve; camShot = null; done(); }
 
     if (popups.length) {
       active = true;
@@ -311,6 +342,63 @@
     return anim;
   }
 
+  // ---------- Throw camera and hit highlight ----------
+  const CAM_ZOOM = 2.4;     // how far the camera zooms in on the landing spot
+  const CAM_HOLD = 450;     // ms to hold on the landed dart
+  const CAM_OUT = 380;      // ms to zoom back out
+  let camShot = null;       // { land, t0, T (ms), resolve }
+  let hitFlash = null;      // { mx, my, res, t0 }
+  const easeIO = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+  function camAt(now) {
+    const c = camShot;
+    if (!c || !G) return null;
+    const t = now - c.t0;
+    let e;
+    if (t <= c.T) e = easeIO(clamp((t - 0.12 * c.T) / (0.88 * c.T), 0, 1));
+    else if (t <= c.T + CAM_HOLD) e = 1;
+    else e = 1 - easeIO(clamp((t - c.T - CAM_HOLD) / CAM_OUT, 0, 1));
+    return {
+      z: 1 + (CAM_ZOOM - 1) * e,
+      fx: lerp(G.cx, c.land.x, e),
+      fy: lerp(G.cy, c.land.y, e),
+      ended: t >= c.T + CAM_HOLD + CAM_OUT,
+    };
+  }
+
+  // Light up the segment the dart landed in, then fade it.
+  function drawHitFlash(c, now) {
+    const h = hitFlash;
+    if (!h) return false;
+    const t = now - h.t0;
+    if (t > 1500) { hitFlash = null; return false; }
+    const res = h.res;
+    const r = Math.hypot(h.mx, h.my);
+    const A = Math.PI * 2, ST = Math.PI / 10;
+    c.save();
+    c.translate(G.cx, G.cy);
+    c.scale(G.scale, G.scale);
+    c.globalAlpha = 0.8 * (t < 900 ? 1 : 1 - (t - 900) / 600);
+    c.fillStyle = '#34f26e';
+    c.shadowColor = 'rgba(52, 242, 110, 0.9)';
+    c.shadowBlur = 10;
+    c.beginPath();
+    if (res.kind === 'bull') c.arc(0, 0, MM.bull, 0, A);
+    else if (res.kind === 'outer') { c.arc(0, 0, MM.outer, 0, A); c.moveTo(MM.bull, 0); c.arc(0, 0, MM.bull, 0, A, true); }
+    else {
+      const [r1, r2] = res.kind === 'treble' ? [MM.tIn, MM.tOut] : res.kind === 'double' ? [MM.dIn, MM.dOut]
+        : r < MM.tIn ? [MM.outer, MM.tIn] : [MM.tOut, MM.dIn];
+      const num = res.kind === 'single' ? Number(res.label) : res.num;
+      const a0 = -Math.PI / 2 + NUMBERS.indexOf(num) * ST;
+      c.arc(0, 0, r2, a0 - ST / 2, a0 + ST / 2);
+      c.arc(0, 0, r1, a0 + ST / 2, a0 - ST / 2, true);
+      c.closePath();
+    }
+    c.fill('evenodd');
+    c.restore();
+    return true;
+  }
+
   const tweenTip = (to, dur) => new Promise((resolve) => {
     tipTween = { from: { ...tip }, to, t0: performance.now(), dur, resolve };
     requestRender();
@@ -345,10 +433,22 @@
     const lean = clamp((land.x - G.cx) / G.edge, -1, 1) * 0.12 + gauss() * 0.05;
     const trail = game.mode === 'practice' ? [] : null;
     if (trail) { practice.trail = null; practice.aimMark = lastFlick && lastFlick.aim; }
+    // Your own throws get the follow-and-zoom camera; the computer's stay wide to keep its turns quick.
+    let camDone = null;
+    if (!p.cpu && outcome === 'stick') {
+      camDone = new Promise((resolve) => { camShot = { land: { x: land.x, y: land.y }, t0: performance.now(), T: T * 1000, resolve }; });
+    }
     await launch({ from: { ...tip }, to, arcH, T, lean, fade: outcome !== 'stick', color: p.color, trail });
     if (trail) practice.trail = trail;
     if (tk !== game.token) return;
-    if (outcome === 'stick') game.stuck.push({ mx, my, lean, color: p.color });
+    if (outcome === 'stick') {
+      game.stuck.push({ mx, my, lean, color: p.color });
+      if (res.value) hitFlash = { mx, my, res, t0: performance.now() };
+    }
+    if (camDone) {
+      await camDone;
+      if (tk !== game.token) return;
+    }
 
     let text = res.value ? String(res.value) : 'Miss';
     let sub = res.value && res.kind !== 'single' ? labelLong(res) : '';
@@ -383,7 +483,7 @@
     const ly = a.y + (fc * 1.1 + Math.max(0, fc - 0.3) * 2.5) * G.R + gauss() * G.R * 0.01;
     lastFlick = { v: sn / S0, side, aim: a };
     const arcH = clamp(H * 0.18 * ratio * ratio, H * 0.035, H * 0.3);
-    const T = clamp(0.55 * Math.sqrt(ratio), 0.35, 0.85);
+    const T = clamp(0.62 * Math.sqrt(ratio), 0.48, 0.92);   // a little longer so the camera can follow
     meter = { t0: performance.now() };
     curP().lastV = sn / S0;
     if (DEBUG) console.log('flick', JSON.stringify({ sn: +sn.toFixed(2), f: +f.toFixed(2), aim: [Math.round(a.x), Math.round(a.y)], land: [Math.round(lx), Math.round(ly)], centre: [Math.round(G.cx), Math.round(G.cy)] }));
@@ -998,7 +1098,8 @@
   }
 
   function resetTransient() {
-    flight = null; tipTween = null; popups = []; meter = null; drag = null;
+    flight = null; tipTween = null; popups = []; meter = null; drag = null; hitFlash = null;
+    if (camShot) { const done = camShot.resolve; camShot = null; done(); }
     game.stuck = [];
   }
 
